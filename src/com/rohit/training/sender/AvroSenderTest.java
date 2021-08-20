@@ -1,4 +1,4 @@
-package com.boa.training.sender;
+package com.rohit.training.sender;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
