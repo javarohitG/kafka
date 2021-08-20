@@ -1,0 +1,361 @@
+	Extract					Transform				       Load
+RDBMS---------------------------->Kafka topic1-------------------->Streaming Application----------------->Kafka topic 2------------------------------------->No sql
+source	source connector  (mysql-topic-employee)			       (cassandra-topic-employee)  sink connector	sink
+(mysql)												         (cassandra)
+
+input table:
+
+emp_id 	integer
+name	varchar(20)
+designation	varchar(20)
+
+
+
+
+streaming application
+
+emp_id
+name
+designation
+salary ------------------this will be calculated based on the designation
+
+salary for Developer---30000
+"          for Accountant---25000
+"          for Architect-------80000
+Any other designation----60000 	
+
+
+cassandra
+
+id
+emp_name
+designation
+salary
+
+Jdbc------------Java database connectivity.
+-----------standard api for interacting with RDBMS from a java application.
+
+kafka streams api:
+
+Kafka streaming application consumes data from a source topic , transforms those data and write it to the target topic.
+This code is developed using kafka streams api.
+In kafka , we use a special component called Serde(Serializer and Deserializer).
+Custom Serde should implement an interface called Serder which contains two methods namely serializer() and deserializer().
+
+In Streaming application, topology denotes the flow of data from input topic, transformation and flow of data to output topic.
+
+
+steps:
+1. create the employee table in mysql.
+2. Download the confluent's jdbc connector from  https://www.confluent.io/hub/confluentinc/kafka-connect-jdbc?_ga=2.263608588.1458229729.1627530408-79874037.1623502070 and extract it.  
+3. From the extracted directory, copy lib\kafka-connect-jdbc.jar to c:\kafka_2.12-2.5.0\libs directory.
+4. Download mysql jdbc driver from https://downloads.mysql.com/archives/get/p/3/file/mysql-connector-java-5.1.39.tar.gz and extract it.
+5. From the extracted directory, copy mysql-connector-java.jar to c:\kafka_2.12-2.5.0\libs directory.
+6. create a file called mysql-source-connector.properties under c:\kafka_2.12-2.5.0\config directory and add the following content.
+
+name=mysql-source-connector
+connector.class=io.confluent.connect.jdbc.JdbcSourceConnector
+tasks.max=8
+
+connection.url=jdbc:mysql://localhost:3306/trainingdb?user=root&password=rps@12345
+table.whitelist=employee
+
+mode=incrementing
+
+incrementing.column.name=emp_id
+#the topic name will be mysql-topic-employee
+topic.prefix=mysql-topic-
+
+7. create the streaming application.
+
+package com.jpmc.training.domain;
+
+public class Employee {
+	private int emp_id;
+	private String name;
+	private String designation;
+	private double salary;
+	public Employee(int emp_id, String name, String designation) {
+		super();
+		this.emp_id = emp_id;
+		this.name = name;
+		this.designation = designation;
+	}
+	public Employee(int emp_id, String name, String designation, double salary) {
+		super();
+		this.emp_id = emp_id;
+		this.name = name;
+		this.designation = designation;
+		this.salary = salary;
+	}
+	public Employee() {
+		super();
+		// TODO Auto-generated constructor stub
+	}
+	public int getEmp_id() {
+		return emp_id;
+	}
+	public void setEmp_id(int emp_id) {
+		this.emp_id = emp_id;
+	}
+	public String getName() {
+		return name;
+	}
+	public void setName(String name) {
+		this.name = name;
+	}
+	public String getDesignation() {
+		return designation;
+	}
+	public void setDesignation(String designation) {
+		this.designation = designation;
+	}
+	public double getSalary() {
+		return salary;
+	}
+	public void setSalary(double salary) {
+		this.salary = salary;
+	}
+	
+	
+
+}
+
+
+
+
+package com.jpmc.training.serde;
+
+import org.apache.kafka.common.serialization.Serializer;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jpmc.training.domain.Employee;
+
+public class EmployeeSerializer implements Serializer<Employee>{
+
+	private ObjectMapper mapper=new ObjectMapper();
+	@Override
+	public byte[] serialize(String topic, Employee employee) {
+		// TODO Auto-generated method stub
+		byte[] array=null;
+		try {
+			array=mapper.writeValueAsBytes(employee);
+			System.out.println("serializing "+new String(array));
+		} catch (JsonProcessingException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return array;
+	}
+
+}
+
+
+package com.jpmc.training.serde;
+
+import java.io.IOException;
+
+import org.apache.kafka.common.serialization.Deserializer;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jpmc.training.domain.Employee;
+
+public class EmployeeDeserializer implements Deserializer<Employee>{
+
+	private ObjectMapper mapper=new ObjectMapper();
+	@Override
+	public Employee deserialize(String topic, byte[] array) {
+		// TODO Auto-generated method stub
+		Employee employee=null;
+		try {
+			employee=mapper.readValue(array, Employee.class);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return employee;
+	}
+}
+
+
+
+package com.jpmc.training.serde;
+
+import org.apache.kafka.common.serialization.Deserializer;
+import org.apache.kafka.common.serialization.Serde;
+import org.apache.kafka.common.serialization.Serializer;
+
+import com.jpmc.training.domain.Employee;
+
+public class EmployeeSerde implements Serde<Employee>{
+
+	@Override
+	public Deserializer<Employee> deserializer() {
+		// TODO Auto-generated method stub
+		return new EmployeeDeserializer();
+	}
+
+	@Override
+	public Serializer<Employee> serializer() {
+		// TODO Auto-generated method stub
+		return new EmployeeSerializer();
+	}
+
+}
+
+
+package com.jpmc.training.streams;
+
+import java.util.Properties;
+import java.util.stream.Stream;
+
+import org.apache.kafka.common.serialization.Serdes.StringSerde;
+import org.apache.kafka.streams.KafkaStreams;
+import org.apache.kafka.streams.StreamsBuilder;
+import org.apache.kafka.streams.StreamsConfig;
+import org.apache.kafka.streams.Topology;
+import org.apache.kafka.streams.kstream.KStream;
+
+import com.jpmc.training.domain.Employee;
+import com.jpmc.training.serde.EmployeeSerde;
+
+public class StreamingApp {
+	
+	public static void main(String[] args) {
+		Properties props=new Properties();
+		props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+		props.put(StreamsConfig.APPLICATION_ID_CONFIG, "etl-stream-app");
+		props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, StringSerde.class.getName());
+		props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, EmployeeSerde.class.getName());
+		KafkaStreams streams=new KafkaStreams(createTopology(), props);
+		streams.start();
+		System.out.println("stream started");
+	}
+	
+	
+	static Topology createTopology()
+	{
+		
+		String inputTopic="mysql-topic-employee";
+		String outputTopic="cassandra-topic-employee";
+		StreamsBuilder builder=new StreamsBuilder();
+		KStream<String, Employee> inputStream=builder.stream(inputTopic);
+		KStream<String,Employee> transformedStream=inputStream.mapValues(e->{
+			String designation=e.getDesignation();
+			Employee employee=new Employee(e.getEmp_id(), e.getName(), designation);
+			double salary=60000;
+			if(designation.equals("Developer")) {
+				salary=30000;
+			}
+			else if(designation.equals("Accountant")) {
+				salary=25000;
+			}
+			else if(designation.equals("Architect")) {
+				salary=80000;
+			}
+			employee.setSalary(salary);
+			return employee;
+		});
+		transformedStream.to(outputTopic);
+		return builder.build();
+	}
+
+}
+
+
+
+8.  create the employee table in cassandra.
+
+9. Download cassandra connector from lenses io from https://github.com/lensesio/stream-reactor/releases/download/2.1.2/kafka-connect-cassandra-2.1.2-2.5.0-all.tar.gz and extract it.
+
+10. From the extracted directory, copy the kafka-connect-cassandra.jar file to kafka\libs directory.
+
+11. create a file called cassandra-connector-sink.properties under kafka\config directory and add the following content.
+name=cassandra-sink
+connector.class=com.datamountaineer.streamreactor.connect.cassandra.sink.CassandraSinkConnector
+tasks.max=1
+topics=cassandra-topic-employee
+connect.cassandra.kcql=INSERT INTO emp_tbl SELECT emp_id as id,name as emp_name,designation,salary from cassandra-topic-employee
+connect.cassandra.port=9042
+connect.cassandra.key.space=testkeyspace
+connect.cassandra.contact.points=localhost
+
+
+12. start the connect process.
+
+
+bin\windows\connect-standalone.bat config\connect-standalone.properties config\mysql-connector-source.properties config\casssandra-connector-sink.properties
+
+13. Run the streaming application
+
+
+
+Cluster:
+
+Kafka cluster is a collection of multiple kafka brokers connected to a single zookeeper url.
+A single topic spans across multiple brokers in the cluster.
+Each partition is replicated in multiple brokers based on the replication factor.
+
+
+		broker-id		port	logs-dir
+
+broker-1		    1		9091	/tmp/kafka-logs-1
+
+broker-2		     2		9092	/tmp/kafka-logs-2
+
+broker-3		     3		9093	/tmp/kafka-logs-3
+
+
+steps:
+
+1. create 3 copies of server.properties and name them as server-1.properties,server-2.properties and server-3.properties respectively.
+2. Modify the broker-id,listeners and logs-dir properties in these files as per the above table.
+3. create 3 batch files in c:\kafka_2.12-2.5.0 directory namely start-server1.bat,start-server2.bat and start-server3.bat.
+
+content of start-server1.bat
+
+start "Server-1" bin\windows\kafka-server-start.bat config\server-1.properties
+
+content of start-server2.bat
+
+start "Server-2" bin\windows\kafka-server-start.bat config\server-2.properties
+
+content of start-server3.bat
+
+start "Server-3" bin\windows\kafka-server-start.bat config\server-3.properties
+
+4. stop the zookeeper and kafka server instances if they are alreay running and clear the tmp directory.
+
+5. start the zookeeper .
+
+6. start server-1,server-2 and server-3 by double clicking the respective batch files.
+
+7. create a topic called test-cluster-topic with 4 partitions and replication factor of 2.
+kafka-topics.bat --create --topic test-cluster-topic --partitions 4 --replication-factor 2 --zookeeper localhost:2181
+
+kafka-topics.bat --describe --topic test-cluster-topic --zookeeper localhost:2181
+
+ Leader:
+
+Each partition has one broker as the leader and zero or more follower brokers.
+The leader receives all the read and write requests for that partition and the followers passively replicate the leader.
+
+Topic: test-cluster-topic       Partition: 0    Leader: 2       Replicas: 2,3   Isr: 2,3--------------partition 0 is replicated in brokers 2 and 3.
+broker 2 is the leader and there is one follower broker which is broker 3.
+
+
+In Sync Replicas--------------Among the replicas, which are in sync with the leader.
+
+
+
+
+
+
+
+
+
+
+
+
+

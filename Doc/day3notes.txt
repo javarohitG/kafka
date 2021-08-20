@@ -1,0 +1,144 @@
+While altering a partition,
+
+1. number of partitions can be increased but can't be decreased.
+2. the replication factor can't be modified.
+
+
+Designation		Partition
+
+Developer		    0
+Accountant		    1
+Architect			    2
+Any other			    3
+
+
+When a consumer is part of a consumer group, the consumer group randomly allocates partition/partitions to the consumer.
+
+When a consumer is not part of a consumer group, we can configure a consumer to listen to a particular partition.
+
+consumer.assign(topicPartitions);
+
+
+offset---------------unique sequential id assigned to message in a partition.
+
+current offset----------the offset to which the next message is going to be published.
+
+
+
+long----------- -2^63 to 2^63-1
+
+
+In the sender side, the producer can pass a callback object in the send method so that the producer will be notified whenever an acknowledgement
+comes from the topic.
+
+The callback object implements an interface called Callback which contains a method called onCompletion().
+The onCompletion method is invoked for each acknowledgement coming from the topic.
+
+
+committed offset:
+
+Kafka maintains separate committed offset for each group.
+If a group is already registered, a consumer of this group will consume the messages starting from committed offset +1.
+Committed offset is the offset till which a consumer of the consumer group has consumed the message.
+
+For a new group, the committed offset is same as the current offset.
+
+To consumer starting from a specific offset in a partition,
+
+consumer.seek(topicPartition,offsetNo);
+
+
+Kafka connect process:
+
+	Extract					Transform				       Load
+RDBMS---------------------------->Kafka topic1-------------------->Streaming Application----------------->Kafka topic 2----------------------->No sql
+source	source connector								  sink connector	sink
+
+Connectors:
+
+Connectors are pre defined kafka components which are used to import data from an external data store into a kafka topic or export data
+from the kafka topic to an external data store.
+External data stores include RDBMS,Nosql,Local File System,HDFS,Elastic Search and etc.
+
+1. source connector(used to import data from datastore to kafka topic)
+2. sink connector(used to export data from  kafka topic to datastore)
+
+
+Connectors are developed using kafka connect api.
+
+There are many third party vendors who provide these kafka connectors.
+Some of the popular vendors are Confluent, Lenses IO and etc.
+
+		Source Connector
+Local File System---------------------------->Kafka Topic
+
+
+
+steps :
+1. create a copy of config\connect-file-source.properties and rename it as config\my-connect-file-source.properties
+
+2. Modify the content of my-connect-file-source.properties as shown below.
+
+name=local-file-source
+connector.class=FileStreamSource
+tasks.max=1
+file=c:/input/test.txt
+topic=connect-test-topic
+
+3. create the connect-test-topic.
+
+kafka-topics.bat --create --topic connect-test-topic --partitions 3 --replication-factor 1  --zookeeper localhost:2181
+
+4. create a file called test.txt under c:\input directory and add some content to the file
+
+5. start the kafka connect process.
+
+open a new command window , navigate to c:\kafka_2.12-2.5.0 directory and type the following command.
+
+bin\windows\connect-standalone.bat config\connect-standalone.properties config\my-connect-file-source.properties
+(connect-process)			(connect-process config)		(connector-config)
+
+
+
+
+
+
+
+
+
+
+	Extract					Transform				       Load
+RDBMS---------------------------->Kafka topic1-------------------->Streaming Application----------------->Kafka topic 2------------------------------------->No sql
+source	source connector  (mysql-topic-employee)			       (cassandra-topic-employee)  sink connector	sink
+(mysql)												         (cassandra)
+
+
+input table:
+
+emp_id 	integer
+name	varchar(20)
+designation	varchar(20)
+
+
+
+
+streaming application
+
+emp_id
+name
+designation
+salary ------------------this will be calculated based on the designation
+
+
+cassandra
+
+id
+emp_name
+designation
+salary
+
+
+In this etl pipleline, 
+
+we are going to use confluent's connector for connecting to rdbms and lenses.io's connector for connecting to casssandra.
+

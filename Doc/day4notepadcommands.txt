@@ -1,0 +1,393 @@
+mysql> create database trainingdb;
+Query OK, 1 row affected (0.00 sec)
+
+mysql> use trainingdb;
+Database changed
+mysql> create table employee(emp_id integer primary key auto_increment,name varchar(20),designation varchar(20));
+
+mysql> insert into employee values(1001,"Rajiv","Developer");
+Query OK, 1 row affected (0.00 sec)
+
+mysql> insert into employee(name,designation) values("Arvind","Accountant");
+Query OK, 1 row affected (0.00 sec)
+
+mysql> insert into employee(name,designation) values("Suresh","Architect");
+Query OK, 1 row affected (0.00 sec)
+
+mysql> select * from employee;
+
+https://www.confluent.io/hub/confluentinc/kafka-connect-jdbc?_ga=2.263608588.1458229729.1627530408-79874037.1623502070
+
+https://downloads.mysql.com/archives/get/p/3/file/mysql-connector-java-5.1.39.tar.gz
+
+
+
+
+name=mysql-source-connector
+connector.class=io.confluent.connect.jdbc.JdbcSourceConnector
+tasks.max=8
+
+connection.url=jdbc:mysql://localhost:3306/trainingdb?user=root&password=rps@12345
+table.whitelist=employee
+
+mode=incrementing
+
+incrementing.column.name=emp_id
+#the topic name will be mysql-topic-employee
+topic.prefix=mysql-topic-
+
+
+
+<dependencies>
+  <!-- https://mvnrepository.com/artifact/org.apache.kafka/kafka-streams -->
+<dependency>
+    <groupId>org.apache.kafka</groupId>
+    <artifactId>kafka-streams</artifactId>
+    <version>2.5.0</version>
+</dependency>
+  
+  </dependencies>
+
+
+package com.jpmc.training.domain;
+
+public class Employee {
+	private int emp_id;
+	private String name;
+	private String designation;
+	private double salary;
+	public Employee(int emp_id, String name, String designation) {
+		super();
+		this.emp_id = emp_id;
+		this.name = name;
+		this.designation = designation;
+	}
+	public Employee(int emp_id, String name, String designation, double salary) {
+		super();
+		this.emp_id = emp_id;
+		this.name = name;
+		this.designation = designation;
+		this.salary = salary;
+	}
+	public Employee() {
+		super();
+		// TODO Auto-generated constructor stub
+	}
+	public int getEmp_id() {
+		return emp_id;
+	}
+	public void setEmp_id(int emp_id) {
+		this.emp_id = emp_id;
+	}
+	public String getName() {
+		return name;
+	}
+	public void setName(String name) {
+		this.name = name;
+	}
+	public String getDesignation() {
+		return designation;
+	}
+	public void setDesignation(String designation) {
+		this.designation = designation;
+	}
+	public double getSalary() {
+		return salary;
+	}
+	public void setSalary(double salary) {
+		this.salary = salary;
+	}
+	
+	
+
+}
+
+
+
+
+package com.jpmc.training.serde;
+
+import org.apache.kafka.common.serialization.Serializer;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jpmc.training.domain.Employee;
+
+public class EmployeeSerializer implements Serializer<Employee>{
+
+	private ObjectMapper mapper=new ObjectMapper();
+	@Override
+	public byte[] serialize(String topic, Employee employee) {
+		// TODO Auto-generated method stub
+		byte[] array=null;
+		try {
+			array=mapper.writeValueAsBytes(employee);
+			System.out.println("serializing "+new String(array));
+		} catch (JsonProcessingException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return array;
+	}
+
+}
+
+
+package com.jpmc.training.serde;
+
+import java.io.IOException;
+
+import org.apache.kafka.common.serialization.Deserializer;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jpmc.training.domain.Employee;
+
+public class EmployeeDeserializer implements Deserializer<Employee>{
+
+	private ObjectMapper mapper=new ObjectMapper();
+	@Override
+	public Employee deserialize(String topic, byte[] array) {
+		// TODO Auto-generated method stub
+		Employee employee=null;
+		try {
+			employee=mapper.readValue(array, Employee.class);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return employee;
+	}
+}
+
+
+
+package com.jpmc.training.serde;
+
+import org.apache.kafka.common.serialization.Deserializer;
+import org.apache.kafka.common.serialization.Serde;
+import org.apache.kafka.common.serialization.Serializer;
+
+import com.jpmc.training.domain.Employee;
+
+public class EmployeeSerde implements Serde<Employee>{
+
+	@Override
+	public Deserializer<Employee> deserializer() {
+		// TODO Auto-generated method stub
+		return new EmployeeDeserializer();
+	}
+
+	@Override
+	public Serializer<Employee> serializer() {
+		// TODO Auto-generated method stub
+		return new EmployeeSerializer();
+	}
+
+}
+
+
+package com.jpmc.training.streams;
+
+import java.util.Properties;
+import java.util.stream.Stream;
+
+import org.apache.kafka.common.serialization.Serdes.StringSerde;
+import org.apache.kafka.streams.KafkaStreams;
+import org.apache.kafka.streams.StreamsBuilder;
+import org.apache.kafka.streams.StreamsConfig;
+import org.apache.kafka.streams.Topology;
+import org.apache.kafka.streams.kstream.KStream;
+
+import com.jpmc.training.domain.Employee;
+import com.jpmc.training.serde.EmployeeSerde;
+
+public class StreamingApp {
+	
+	public static void main(String[] args) {
+		Properties props=new Properties();
+		props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+		props.put(StreamsConfig.APPLICATION_ID_CONFIG, "etl-stream-app");
+		props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, StringSerde.class.getName());
+		props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, EmployeeSerde.class.getName());
+		KafkaStreams streams=new KafkaStreams(createTopology(), props);
+		streams.start();
+		System.out.println("stream started");
+	}
+	
+	
+	static Topology createTopology()
+	{
+		
+		String inputTopic="mysql-topic-employee";
+		String outputTopic="cassandra-topic-employee";
+		StreamsBuilder builder=new StreamsBuilder();
+		KStream<String, Employee> inputStream=builder.stream(inputTopic);
+		KStream<String,Employee> transformedStream=inputStream.mapValues(e->{
+			String designation=e.getDesignation();
+			Employee employee=new Employee(e.getEmp_id(), e.getName(), designation);
+			double salary=60000;
+			if(designation.equals("Developer")) {
+				salary=30000;
+			}
+			else if(designation.equals("Accountant")) {
+				salary=25000;
+			}
+			else if(designation.equals("Architect")) {
+				salary=80000;
+			}
+			employee.setSalary(salary);
+			return employee;
+		});
+		transformedStream.to(outputTopic);
+		return builder.build();
+	}
+
+}
+
+C:\apache-cassandra-3.11.7\bin>cassandra
+
+
+C:\apache-cassandra-3.11.7\bin>path=c:\Python27;%path%
+
+C:\apache-cassandra-3.11.7\bin>cqlsh
+
+
+ create keyspace testkeyspace with replication={'class':'SimpleStrategy','replication_factor':1};
+
+
+cqlsh> use testkeyspace;
+
+cqlsh:testkeyspace> create table emp_tbl(id int primary key,emp_name text,designation text,salary double);
+
+
+cqlsh:testkeyspace> describe tables;
+
+emp_tbl
+
+
+
+cqlsh:testkeyspace> describe emp_tbl;
+
+
+name=cassandra-sink
+connector.class=com.datamountaineer.streamreactor.connect.cassandra.sink.CassandraSinkConnector
+tasks.max=1
+topics=cassandra-topic-employee
+connect.cassandra.kcql=INSERT INTO emp_tbl SELECT emp_id as id,name as emp_name,designation,salary from cassandra-topic-employee
+connect.cassandra.port=9042
+connect.cassandra.key.space=testkeyspace
+connect.cassandra.contact.points=localhost
+
+
+bin\windows\connect-standalone.bat config\connect-standalone.properties config\mysql-connector-source.properties config\casssandra-connector-sink.properties
+
+
+
+package com.jpmc.training.streams;
+
+import java.util.Properties;
+import java.util.stream.Stream;
+
+import org.apache.kafka.common.serialization.Serdes.StringSerde;
+import org.apache.kafka.streams.KafkaStreams;
+import org.apache.kafka.streams.StreamsBuilder;
+import org.apache.kafka.streams.StreamsConfig;
+import org.apache.kafka.streams.Topology;
+import org.apache.kafka.streams.kstream.KStream;
+
+import com.jpmc.training.domain.Employee;
+import com.jpmc.training.serde.EmployeeSerde;
+
+public class StreamingApp {
+	
+	public static void main(String[] args) {
+		Properties props=new Properties();
+		props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+		props.put(StreamsConfig.APPLICATION_ID_CONFIG, "etl-stream-app");
+		props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, StringSerde.class.getName());
+		props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, EmployeeSerde.class.getName());
+		KafkaStreams streams=new KafkaStreams(createTopology(), props);
+		streams.start();
+		System.out.println("stream started");
+	}
+	
+	
+	static Topology createTopology()
+	{
+		
+		String inputTopic="mysql-topic-employee";
+		String outputTopic="cassandra-topic-employee";
+		StreamsBuilder builder=new StreamsBuilder();
+		KStream<String, Employee> inputStream=builder.stream(inputTopic);
+		KStream<String,Employee> transformedStream=inputStream.mapValues(e->{
+			System.out.println("processing the eployee with id "+e.getEmp_id());
+			String designation=e.getDesignation();
+			Employee employee=new Employee(e.getEmp_id(), e.getName(), designation);
+			double salary=60000;
+			if(designation.equals("Developer")) {
+				salary=30000;
+			}
+			else if(designation.equals("Accountant")) {
+				salary=25000;
+			}
+			else if(designation.equals("Architect")) {
+				salary=80000;
+			}
+			employee.setSalary(salary);
+			return employee;
+		});
+		transformedStream.to(outputTopic);
+		return builder.build();
+	}
+
+}
+
+cqlsh:testkeyspace> select * from emp_tbl;
+
+kafka-console-consumer.bat --topic mysql-topic-employee --bootstrap-server localhost:9092 --from-beginning
+
+kafka-console-consumer.bat --topic cassandra-topic-employee --bootstrap-server localhost:9092 --from-beginning
+
+
+start "Server-1" bin\windows\kafka-server-start.bat config\server-1.properties
+
+
+content of start-server2.bat
+
+start "Server-2" bin\windows\kafka-server-start.bat config\server-2.properties
+
+content of start-server3.bat
+
+start "Server-3" bin\windows\kafka-server-start.bat config\server-3.properties
+
+
+Can we do like this
+
+start "Server-1" bin\windows\kafka-server-start.bat config\server-1.properties
+sleep 5 
+start "Server-2" bin\windows\kafka-server-start.bat config\server-2.properties
+sleep 5 
+start "Server-3" bin\windows\kafka-server-start.bat config\server-3.properties
+ in one file itself
+
+
+
+
+bin\windows\zookeeper-server-start.bat config\zookeeper.properties
+
+
+kafka-topics.bat --create --topic test-cluster-topic --partitions 4 --replication-factor 2 --zookeeper localhost:2181
+
+kafka-topics.bat --describe --topic test-cluster-topic --zookeeper localhost:2181
+
+Topic: test-cluster-topic       Partition: 0    Leader: 2       Replicas: 2,3   Isr: 2,3--------------partition 0 is replicated in brokers 2 and 3.
+broker 2 is the leader and there is one follower broker which is broker 3.
+
+
+
+
+
+
+
+
+
